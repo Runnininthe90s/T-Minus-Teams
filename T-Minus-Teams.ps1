@@ -3,8 +3,9 @@
     Pre-meeting hype sequence script for Microsoft Teams.
 .DESCRIPTION
     Checks the local Outlook calendar for upcoming Teams meetings. If a meeting is found 
-    within the look-ahead window, it waits until exactly 1 minute before the start time, 
-    launches the Teams pre-join lobby, and plays a walk-up track.
+    within the look-ahead window, it checks if the user is marked as Out of Office. 
+    If not, it waits until exactly 1 minute before the start time, launches the Teams 
+    pre-join lobby, and plays a walk-up track.
 #>
 
 $audioPath = "C:\Scripts\T-Minus-Teams\theme.wav"
@@ -55,28 +56,48 @@ if ($targetMeeting) {
     $meetingStart = [datetime]$targetMeeting.Start
     Write-Log "Found Teams meeting: '$($targetMeeting.Subject)' starting at $meetingStart"
     
-    # Calculate exactly 1 minute before start time
-    $hypeTime = $meetingStart.AddMinutes(-1)
+    # --- Out of Office Check ---
+    $isOof = $false
     
-    # Wait until the exact hype time
-    $timeToWait = New-TimeSpan -Start (Get-Date) -End $hypeTime
+    # Look for any calendar items that overlap with this meeting's start time
+    $oofFilter = "[Start] <= '$($meetingStart.ToString('g'))' AND [End] >= '$($meetingStart.ToString('g'))'"
+    $overlappingItems = $calendar.Items.Restrict($oofFilter)
     
-    if ($timeToWait.TotalSeconds -gt 0) {
-        Write-Log "Waiting $($timeToWait.TotalSeconds) seconds until T-minus 1 minute ($hypeTime)..."
-        Start-Sleep -Seconds $timeToWait.TotalSeconds
+    foreach ($item in $overlappingItems) {
+        # 3 is the internal property value for "Out of Office"
+        if ($item.BusyStatus -eq 3) { 
+            $isOof = $true
+            Write-Log "Detected an Out of Office block ('$($item.Subject)') covering this meeting time."
+            break
+        }
     }
 
-    Write-Log "Initiating Sequence! Opening Teams lobby and playing audio."
-    
-    # Launch the Teams meeting URL
-    Start-Process $teamsUrl
-
-    # Blast the theme
-    if (Test-Path $audioPath) {
-        $player = New-Object System.Media.SoundPlayer $audioPath
-        $player.PlaySync()
+    if ($isOof) {
+        Write-Log "Skipping hype sequence because you are marked as Out of Office."
     } else {
-        Write-Log "WARNING: Audio file not found at $audioPath"
+        # Calculate exactly 1 minute before start time
+        $hypeTime = $meetingStart.AddMinutes(-1)
+        
+        # Wait until the exact hype time
+        $timeToWait = New-TimeSpan -Start (Get-Date) -End $hypeTime
+        
+        if ($timeToWait.TotalSeconds -gt 0) {
+            Write-Log "Waiting $($timeToWait.TotalSeconds) seconds until T-minus 1 minute ($hypeTime)..."
+            Start-Sleep -Seconds $timeToWait.TotalSeconds
+        }
+
+        Write-Log "Initiating Sequence! Opening Teams lobby and playing audio."
+        
+        # Launch the Teams meeting URL
+        Start-Process $teamsUrl
+
+        # Blast the theme
+        if (Test-Path $audioPath) {
+            $player = New-Object System.Media.SoundPlayer $audioPath
+            $player.PlaySync()
+        } else {
+            Write-Log "WARNING: Audio file not found at $audioPath"
+        }
     }
 } else {
     Write-Log "No upcoming Teams meetings found in the next 15 minutes."
