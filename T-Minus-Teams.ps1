@@ -69,9 +69,15 @@ if ($targetMeeting) {
     # --- Out of Office Check ---
     $isOof = $false
     
+    # Format the meeting start time exactly how the COM object expects it
+    $strMeetingStart = $meetingStart.ToString("MM/dd/yyyy hh:mm tt")
+    
     # Look for any calendar items that overlap with this meeting's start time
-    $oofFilter = "[Start] <= '$($meetingStart.ToString('g'))' AND [End] >= '$($meetingStart.ToString('g'))'"
-    $overlappingItems = $calendar.Items.Restrict($oofFilter)
+    # CRITICAL: We use $items here so recurrences are accurately parsed
+    $oofFilter = "[Start] <= '$strMeetingStart' AND [End] >= '$strMeetingStart'"
+    Write-Log "Checking for OOO with filter: $oofFilter"
+    
+    $overlappingItems = $items.Restrict($oofFilter)
     
     foreach ($item in $overlappingItems) {
         # 3 is the internal property value for "Out of Office"
