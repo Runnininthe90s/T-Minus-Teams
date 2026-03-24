@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Pre-meeting hype sequence script for Microsoft Teams.
+    Pre-meeting walk-up sequence script for Microsoft Teams.
 .DESCRIPTION
     Checks the local Outlook calendar for upcoming Teams meetings. If a meeting is found 
     within the look-ahead window, it checks if the user is marked as Out of Office. 
