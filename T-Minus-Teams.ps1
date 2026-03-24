@@ -27,6 +27,11 @@ try {
     $outlook = New-Object -ComObject Outlook.Application
     $namespace = $outlook.GetNamespace("MAPI")
     $calendar = $namespace.GetDefaultFolder(9)
+    $items = $calendar.Items
+    
+    # CRITICAL: You must sort by Start date BEFORE enabling IncludeRecurrences
+    $items.Sort("[Start]")
+    $items.IncludeRecurrences = $true
 } catch {
     Write-Log "ERROR: Failed to hook into Outlook COM object. Exiting."
     exit
@@ -36,9 +41,14 @@ try {
 $now = Get-Date
 $lookAhead = $now.AddMinutes(15)
 
-$filter = "[Start] >= '$($now.ToString('g'))' AND [Start] <= '$($lookAhead.ToString('g'))'"
-$upcomingMeetings = $calendar.Items.Restrict($filter)
-$upcomingMeetings.Sort("[Start]")
+# Format dates exactly how the Outlook COM object expects them
+$strNow = $now.ToString("MM/dd/yyyy hh:mm tt")
+$strLookAhead = $lookAhead.ToString("MM/dd/yyyy hh:mm tt")
+
+$filter = "[Start] >= '$strNow' AND [Start] <= '$strLookAhead'"
+Write-Log "Scanning calendar with filter: $filter"
+
+$upcomingMeetings = $items.Restrict($filter)
 
 $targetMeeting = $null
 $teamsUrl = $null
