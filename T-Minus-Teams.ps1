@@ -8,8 +8,22 @@
     pre-join lobby, and plays a walk-up track.
 #>
 
-$audioPath = "C:\Scripts\T-Minus-Teams\theme.wav"
-$logPath = "C:\Scripts\T-Minus-Teams\T-Minus-Teams.log"
+# Bulletproof path resolution
+$scriptDir = $PSScriptRoot
+if (-not $scriptDir) { 
+    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition 
+}
+if (-not $scriptDir) { 
+    $scriptDir = "C:\Scripts" # Ultimate failsafe
+}
+
+$audioPath = Join-Path -Path $scriptDir -ChildPath "theme.wav"
+$logPath = Join-Path -Path $scriptDir -ChildPath "T-Minus-Teams.log"
+
+# Ensure the directory actually exists (fixes the DirectoryNotFoundException)
+if (-not (Test-Path $scriptDir)) {
+    New-Item -ItemType Directory -Path $scriptDir | Out-Null
+}
 
 # Simple logging function
 Function Write-Log {
@@ -73,7 +87,6 @@ if ($targetMeeting) {
     $strMeetingStart = $meetingStart.ToString("MM/dd/yyyy hh:mm tt")
     
     # Look for any calendar items that overlap with this meeting's start time
-    # CRITICAL: We use $items here so recurrences are accurately parsed
     $oofFilter = "[Start] <= '$strMeetingStart' AND [End] >= '$strMeetingStart'"
     Write-Log "Checking for OOO with filter: $oofFilter"
     
@@ -89,7 +102,7 @@ if ($targetMeeting) {
     }
 
     if ($isOof) {
-        Write-Log "Skipping hype sequence because you are marked as Out of Office."
+        Write-Log "Skipping sequence because you are marked as Out of Office."
     } else {
         # Calculate exactly 1 minute before start time
         $hypeTime = $meetingStart.AddMinutes(-1)
