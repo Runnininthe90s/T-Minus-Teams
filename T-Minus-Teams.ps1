@@ -70,6 +70,49 @@ Function Save-TriggerState {
     ($payload | ConvertTo-Json -Compress) | Set-Content -LiteralPath $statePath -Encoding UTF8
 }
 
+# Windows 10/11 action center toast (no extra modules). Uses the same WinRT API as Settings notifications.
+Function Show-TMinusMeetingToast {
+    Param (
+        [string]$Subject,
+        [datetime]$MeetingStart
+    )
+    try {
+        $null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
+        $null = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]
+    } catch {
+        Write-Log "Toast unavailable (WinRT types): $($_.Exception.Message)"
+        return
+    }
+
+    $title = [System.Security.SecurityElement]::Escape('T-Minus Teams')
+    $sub = if ($Subject) { [System.Security.SecurityElement]::Escape($Subject) } else { [System.Security.SecurityElement]::Escape('Teams meeting') }
+    $when = [System.Security.SecurityElement]::Escape("Starting at $($MeetingStart.ToString('t')) - opening the pre-join lobby.")
+
+    $toastXml = @"
+<toast duration="short">
+  <visual>
+    <binding template="ToastGeneric">
+      <text>$title</text>
+      <text>$sub</text>
+      <text>$when</text>
+    </binding>
+  </visual>
+</toast>
+"@
+
+    try {
+        $doc = New-Object Windows.Data.Xml.Dom.XmlDocument
+        $doc.LoadXml($toastXml.Trim())
+        $toast = [Windows.UI.Notifications.ToastNotification]::new($doc)
+        # AUMID registered with Windows for desktop PowerShell (matches typical Scheduled Task / hidden runs)
+        $appId = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
+        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
+        Write-Log "Toast notification shown."
+    } catch {
+        Write-Log "Toast failed: $($_.Exception.Message)"
+    }
+}
+
 $lockStream = $null
 try {
     try {
@@ -170,6 +213,8 @@ if ($targetMeeting) {
             Write-Log "Sequence already ran for this meeting (state file). Skipping duplicate trigger."
         } else {
             Write-Log "Initiating Sequence! Opening Teams lobby and playing audio."
+
+            Show-TMinusMeetingToast -Subject $targetMeeting.Subject -MeetingStart $meetingStart
 
             Start-Process $teamsUrl
             Save-TriggerState -EntryId $entryId -MeetingStart $meetingStart
