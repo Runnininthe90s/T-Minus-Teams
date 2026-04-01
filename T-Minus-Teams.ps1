@@ -19,6 +19,8 @@ if (-not $scriptDir) {
 
 $audioPath = Join-Path -Path $scriptDir -ChildPath "theme.wav"
 $logPath = Join-Path -Path $scriptDir -ChildPath "T-Minus-Teams.log"
+$lockPath = Join-Path -Path $scriptDir -ChildPath "T-Minus-Teams.lock"
+$statePath = Join-Path -Path $scriptDir -ChildPath "T-Minus-Teams.state.json"
 
 # Ensure the directory actually exists (fixes the DirectoryNotFoundException)
 if (-not (Test-Path $scriptDir)) {
@@ -34,7 +36,55 @@ Function Write-Log {
     Write-Host $logEntry
 }
 
-Write-Log "--- Starting Hype Check ---"
+Function Get-TriggerState {
+    if (-not (Test-Path $statePath)) { return $null }
+    try {
+        Get-Content -LiteralPath $statePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        return $null
+    }
+}
+
+Function Test-AlreadyTriggered {
+    Param (
+        [string]$EntryId,
+        [datetime]$MeetingStart
+    )
+    if (-not $EntryId) { return $false }
+    $s = Get-TriggerState
+    if (-not $s) { return $false }
+    $startKey = $MeetingStart.ToUniversalTime().ToString("o", [System.Globalization.CultureInfo]::InvariantCulture)
+    return ($s.EntryId -eq $EntryId -and $s.MeetingStartUtc -eq $startKey)
+}
+
+Function Save-TriggerState {
+    Param (
+        [string]$EntryId,
+        [datetime]$MeetingStart
+    )
+    $payload = [ordered]@{
+        EntryId         = $EntryId
+        MeetingStartUtc = $MeetingStart.ToUniversalTime().ToString("o", [System.Globalization.CultureInfo]::InvariantCulture)
+        TriggeredAtUtc  = (Get-Date).ToUniversalTime().ToString("o", [System.Globalization.CultureInfo]::InvariantCulture)
+    }
+    ($payload | ConvertTo-Json -Compress) | Set-Content -LiteralPath $statePath -Encoding UTF8
+}
+
+$lockStream = $null
+try {
+    try {
+        $lockStream = [System.IO.File]::Open(
+            $lockPath,
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+    } catch {
+        Write-Log "Another instance is running (lock in use). Exiting to avoid overlapping runs."
+        exit 0
+    }
+
+    Write-Log "--- Starting Hype Check ---"
 
 # Hook into Outlook
 try {
@@ -115,17 +165,21 @@ if ($targetMeeting) {
             Start-Sleep -Seconds $timeToWait.TotalSeconds
         }
 
-        Write-Log "Initiating Sequence! Opening Teams lobby and playing audio."
-        
-        # Launch the Teams meeting URL
-        Start-Process $teamsUrl
-
-        # Blast the theme
-        if (Test-Path $audioPath) {
-            $player = New-Object System.Media.SoundPlayer $audioPath
-            $player.PlaySync()
+        $entryId = [string]$targetMeeting.EntryID
+        if (Test-AlreadyTriggered -EntryId $entryId -MeetingStart $meetingStart) {
+            Write-Log "Sequence already ran for this meeting (state file). Skipping duplicate trigger."
         } else {
-            Write-Log "WARNING: Audio file not found at $audioPath"
+            Write-Log "Initiating Sequence! Opening Teams lobby and playing audio."
+
+            Start-Process $teamsUrl
+            Save-TriggerState -EntryId $entryId -MeetingStart $meetingStart
+
+            if (Test-Path -LiteralPath $audioPath) {
+                $player = New-Object System.Media.SoundPlayer $audioPath
+                $player.PlaySync()
+            } else {
+                Write-Log "WARNING: Audio file not found at $audioPath"
+            }
         }
     }
 } else {
@@ -140,3 +194,9 @@ if ($targetMeeting) {
 [System.GC]::WaitForPendingFinalizers()
 
 Write-Log "--- Check Complete ---"
+
+} finally {
+    if ($null -ne $lockStream) {
+        $lockStream.Dispose()
+    }
+}

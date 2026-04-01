@@ -1,0 +1,9 @@
+# Local walk-up audio (user-provided)
+*.wav
+
+# Runtime logs
+*.log
+
+# Single-instance lock and trigger state (created by T-Minus-Teams.ps1)
+T-Minus-Teams.lock
+T-Minus-Teams.state.json
